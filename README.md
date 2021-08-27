@@ -1,10 +1,10 @@
-[![Build Status](https://cloud.drone.io/api/badges/meltwater/terraform-aws-asg-dns-handler/status.svg)](https://cloud.drone.io/meltwater/terraform-aws-asg-dns-handler)
-
 # ASG DNS handler
 
 ## Purpose
 
-This Terraform module sets up everything necessary for dynamically setting hostnames following a certain pattern on instances spawned by AWS Auto Scaling Groups (ASGs).
+This Terraform module sets up everything necessary for dynamically setting
+host names following a certain pattern on instances spawned by AWS Auto Scaling
+Groups (ASGs).
 
 Learn more about our motivation to build this module in [this blog post](https://underthehood.meltwater.com/blog/2020/02/07/dynamic-route53-records-for-aws-auto-scaling-groups-with-terraform/).
 
@@ -14,13 +14,18 @@ Learn more about our motivation to build this module in [this blog post](https:/
 - [Terraform AWS provider](https://github.com/terraform-providers/terraform-provider-aws) 2.0+
 
 ## Usage
-`vpc_name` below is the DNZ zone name
 
 ### Per instance names
+
 Create an ASG and set the `asg:hostname_pattern` tag for example like this:
 
 ```
-asg-test-#instanceid.example.com@Z3QP9GZSRL8IVA
+asg-test-#instanceid.example@Z3QP9GZSRL8IVA
+   ^          ^         ^             ^
+   |          |         |           Zone ID to attach routes too
+   |          |        Any subdomains that should be added (var.vpc_name)
+   |      Replaced by the instance ID
+   | Static prefix common across all instances (var.hostname_prefix)
 ```
 
 Could be interpolated in Terraform like this:
@@ -34,32 +39,53 @@ tag {
 ```
 
 ### Single DNS name for the entire ASG
-Primary use of this is to manage round robin DNS. Keep in mind that you should still use health checks for any custom loadbalancers.
-Following from the examples above we omit the `-#instanceid` portion. eg `mail-servers.example.com@ABCDEFGHIJ123` and use the key `asg:multihost_pattern`
-Also note the ASG lifestyle_hook should use `notification_target_arn = module.autoscale_dns.multihost_handling_sns_topic_arn`
 
-While you could have a host in both the `-#instanceid` and single DNS name, it is advised against doing this as both handlers will attempt to rename the instance. The DNS should be fine, the instance name will be in an unknown state.
+You may optionally use `var.hostname_prefix` alone for _all_ instances in the ASG.
 
-**Constrints of running a pool**
-If multiple events are happening in quick succession we may get into situiations where latter runs pickup instances that have not finished terminating.
-In situiations were multiple terminations are expected it may be better to change the logic from
- * Scanning the ASG and building the IP list from there
+You can enable this by setting `multi_host = true` in the module definition.
+
+```hcl
+module "autoscale_dns" {
+  # <...>
+
+  multi_host = true
+}
+
+```
+
+Following from the examples above we omit the `-#instanceid` portion. eg
+`asg-test.example@ABCDEFGHIJ123`.
+
+**Constraints of running multi_host**
+
+If multiple events are happening in quick succession we may get into situations
+where latter runs pickup instances that have not finished terminating.
+
+In situations were multiple terminations are expected it may be better to change the logic from
+
+- Scanning the ASG and building the IP list from there
+
 to
- * Grabbing the IP list from EC2 and stripping out the instance. This may require more information to be stored in TXT entries to map instance ID's to IP addresses
-In general it is expected that on busy ASG's there will be residual IP's between scaling events
+
+- Grabbing the IP list from EC2 and stripping out the instance. This may require
+  more information to be stored in TXT entries to map instance ID's to IP addresses
+
+In general it is expected that on busy ASG's there will be residual IP's between
+scaling events
 
 ```hcl
 tag {
-  key                 = "asg:multihost_pattern"
+  key                 = "asg:hostname_pattern"
   value               = format("%s.%s@%s", var.hostname_prefix, var.vpc_name, var.internal_zone_id)
   propagate_at_launch = true
 }
 ```
 
-
 ### Common
+
 Once you have your ASG set up, you can just invoke this module and point to it:
 `use_public_ip` defaults to false
+
 ```hcl
 module "clever_name_autoscale_dns" {
   source  = "meltwater/asg-dns-handler/aws"
@@ -67,7 +93,7 @@ module "clever_name_autoscale_dns" {
   # use_public_ip = true
   autoscale_handler_unique_identifier = "clever_name"
   autoscale_route53zone_arn           = "ABCDEFGHIJ123"
-  vpc_name                            = "example.com"
+  vpc_name                            = "example"
 }
 ```
 
@@ -83,12 +109,12 @@ The Lambda function then does the following:
 
 - Fetch the `asg:hostname_pattern` tag value from the ASG, and parse out the hostname and Route53 zone ID from it.
 - If it's an instance being **created**
-	- Fetch internal IP from EC2 API
-	- Create a Route53 record pointing the hostname to the IP
-	- Set the Name tag of the instance to the initial part of the generated hostname
+  - Fetch internal IP from EC2 API
+  - Create a Route53 record pointing the hostname to the IP
+  - Set the Name tag of the instance to the initial part of the generated hostname
 - If it's an instance being **deleted**
-	- Fetch the internal IP from the existing record from the Route53 API
-	- Delete the record
+  - Fetch the internal IP from the existing record from the Route53 API
+  - Delete the record
 
 ## Setup
 
@@ -150,12 +176,21 @@ module "autoscale_dns" {
 
 ## Difference between Lifecycle action
 
-Lifecycle_hook can have `CONTINUE` or `ABANDON` as default_result. By setting default_result to `ABANDON` will terminate the instance if the lambda function fails to update the DNS record as required. `Complete_lifecycle_action` in lambda function returns `LifecycleActionResult` as `CONTINUE` on success to Lifecycle_hook. But if lambda function fails, Lifecycle_hook doesn't get any response from `Complete_lifecycle_action` which results in timeout and terminates the instance.
+Lifecycle_hook can have `CONTINUE` or `ABANDON` as default_result. By setting
+default_result to `ABANDON` will terminate the instance if the lambda function
+fails to update the DNS record as required. `Complete_lifecycle_action` in lambda
+function returns `LifecycleActionResult` as `CONTINUE` on success to Lifecycle_hook.
+But if lambda function fails, Lifecycle_hook doesn't get any response from
+`Complete_lifecycle_action` which results in timeout and terminates the instance.
 
 At the conclusion of a lifecycle hook, the result is either ABANDON or CONTINUE.
-If the instance is launching, CONTINUE indicates that your actions were successful, and that the instance can be put into service. Otherwise, ABANDON indicates that your custom actions were unsuccessful, and that the instance can be terminated.
+If the instance is launching, CONTINUE indicates that your actions were successful,
+and that the instance can be put into service. Otherwise, ABANDON indicates that
+your custom actions were unsuccessful, and that the instance can be terminated.
 
-If the instance is terminating, both ABANDON and CONTINUE allow the instance to terminate. However, ABANDON stops any remaining actions, such as other lifecycle hooks, while CONTINUE allows any other lifecycle hooks to complete.
+If the instance is terminating, both ABANDON and CONTINUE allow the instance to
+terminate. However, ABANDON stops any remaining actions, such as other lifecycle
+hooks, while CONTINUE allows any other lifecycle hooks to complete.
 
 ## License and Copyright
 
