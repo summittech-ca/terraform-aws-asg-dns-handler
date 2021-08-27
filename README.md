@@ -6,7 +6,7 @@
 
 This Terraform module sets up everything necessary for dynamically setting hostnames following a certain pattern on instances spawned by AWS Auto Scaling Groups (ASGs).
 
-Learn more about our motivation to build this module in our blog post [Dynamic Route53 records for AWS Auto Scaling Groups with Terraform](https://underthehood.meltwater.com/blog/2020/02/07/dynamic-route53-records-for-aws-auto-scaling-groups-with-terraform/).
+Learn more about our motivation to build this module in [this blog post](https://underthehood.meltwater.com/blog/2020/02/07/dynamic-route53-records-for-aws-auto-scaling-groups-with-terraform/).
 
 ## Requirements
 
@@ -14,11 +14,13 @@ Learn more about our motivation to build this module in our blog post [Dynamic R
 - [Terraform AWS provider](https://github.com/terraform-providers/terraform-provider-aws) 2.0+
 
 ## Usage
+`vpc_name` below is the DNZ zone name
 
+### Per instance names
 Create an ASG and set the `asg:hostname_pattern` tag for example like this:
 
 ```
-asg-test-#instanceid.asg-handler-vpc.testing@Z3QP9GZSRL8IVA
+asg-test-#instanceid.example.com@Z3QP9GZSRL8IVA
 ```
 
 Could be interpolated in Terraform like this:
@@ -26,12 +28,38 @@ Could be interpolated in Terraform like this:
 ```hcl
 tag {
   key                 = "asg:hostname_pattern"
-  value               = "${var.hostname_prefix}-#instanceid.${var.vpc_name}.testing@${var.internal_zone_id}"
+  value               = format("%s-#instanceid.%s@%s", var.hostname_prefix, var.vpc_name, var.internal_zone_id)
   propagate_at_launch = true
 }
 ```
 
+### Single DNS name for the entire ASG
+Primary use of this is to manage round robin DNS. Keep in mind that you should still use health checks for any custom loadbalancers.
+Following from the examples above we omit the `-#instanceid` portion. eg `mail-servers.example.com@ABCDEFGHIJ123` and use the key `asg:multihost_pattern`
+Also note the ASG lifestyle_hook should use `notification_target_arn = module.autoscale_dns.multihost_handling_sns_topic_arn`
+
+While you could have a host in both the `-#instanceid` and single DNS name, it is advised against doing this as both handlers will attempt to rename the instance. The DNS should be fine, the instance name will be in an unknown state.
+
+**Constrints of running a pool**
+If multiple events are happening in quick succession we may get into situiations where latter runs pickup instances that have not finished terminating.
+In situiations were multiple terminations are expected it may be better to change the logic from
+ * Scanning the ASG and building the IP list from there
+to
+ * Grabbing the IP list from EC2 and stripping out the instance. This may require more information to be stored in TXT entries to map instance ID's to IP addresses
+In general it is expected that on busy ASG's there will be residual IP's between scaling events
+
+```hcl
+tag {
+  key                 = "asg:multihost_pattern"
+  value               = format("%s.%s@%s", var.hostname_prefix, var.vpc_name, var.internal_zone_id)
+  propagate_at_launch = true
+}
+```
+
+
+### Common
 Once you have your ASG set up, you can just invoke this module and point to it:
+`use_public_ip` defaults to false
 ```hcl
 module "clever_name_autoscale_dns" {
   source  = "meltwater/asg-dns-handler/aws"
@@ -39,7 +67,7 @@ module "clever_name_autoscale_dns" {
   # use_public_ip = true
   autoscale_handler_unique_identifier = "clever_name"
   autoscale_route53zone_arn           = "ABCDEFGHIJ123"
-  vpc_name                            = "my_vpc"
+  vpc_name                            = "example.com"
 }
 ```
 
