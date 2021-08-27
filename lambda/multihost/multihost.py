@@ -11,18 +11,10 @@ autoscaling = boto3.client('autoscaling')
 ec2 = boto3.client('ec2')
 route53 = boto3.client('route53')
 
-HOSTNAME_TAG_NAME = "asg:multihost_pattern"
+HOSTNAME_TAG_NAME = "asg:hostname_pattern"
 
 LIFECYCLE_KEY = "LifecycleHookName"
 ASG_KEY = "AutoScalingGroupName"
-
-# Constrints of running a pool
-# If multiple events are happening in quick succession we may get into situiations where latter runs pickup instances that have not finished terminating.
-# In situiations were multiple terminations are expected it may be better to change the logic from
-#  * Scanning the ASG and building the IP list from there
-# to
-#  * Grabbing the IP list from EC2 and stripping out the instance. This may require more information to be stored in TXT entries to map instance ID's to IP addresses
-# In general it is expected that on busy ASG's there will be residual IP's
 
 # Fetches IP of an instance via EC2 API
 def fetch_ip_from_ec2(instance_id):
@@ -76,6 +68,10 @@ def fetch_tag_metadata(asg_name):
     logger.info("Found tags for ASG %s: %s", asg_name, tag_value)
 
     return tag_value.split("@")
+
+# Builds a hostname according to pattern
+def build_hostname(hostname_pattern, instance_id):
+    return hostname_pattern.replace('#instanceid', instance_id)
 
 # Updates the name tag of an instance
 def update_name_tag(instance_id, hostname):
@@ -136,8 +132,8 @@ def process_asg(auto_scaling_group_name, hostname, ignore_instance):
   return ips
 
 
-  # Processes a scaling event
-  # Builds a hostname from tag metadata, fetches a IP, and updates records accordingly
+# Processes a scaling event
+# Builds a hostname from tag metadata, fetches a IP, and updates records accordingly
 def process_message(message):
     if 'LifecycleTransition' not in message:
         logger.info("Processing %s event", message['Event'])
@@ -155,7 +151,8 @@ def process_message(message):
       ignore_instance = instance_id
       logger.info("The following instance-id should be ignored %s", instance_id)
 
-    hostname, zone_id = fetch_tag_metadata(asg_name)
+    hostname_pattern, zone_id = fetch_tag_metadata(asg_name)
+    hostname = build_hostname(hostname_pattern, "")
 
     ip_addrs = process_asg(asg_name, hostname, ignore_instance)
     update_record(zone_id, ip_addrs, hostname)
@@ -172,20 +169,20 @@ def lambda_handler(event, context):
     for record in event['Records']:
         process_record(record)
 
-# Finish the asg lifecycle operation by sending a continue result
-    logger.info("Finishing ASG action")
-    message = json.loads(record['Sns']['Message'])
-    if LIFECYCLE_KEY in message and ASG_KEY in message :
-        response = autoscaling.complete_lifecycle_action (
-            LifecycleHookName     = message['LifecycleHookName'],
-            AutoScalingGroupName  = message['AutoScalingGroupName'],
-            InstanceId            = message['EC2InstanceId'],
-            LifecycleActionToken  = message['LifecycleActionToken'],
-            LifecycleActionResult = 'CONTINUE'
-        )
-        logger.info("ASG action complete: %s", response)
-    else :
-        logger.error("No valid JSON message")
+        # Finish the asg lifecycle operation by sending a continue result
+        logger.info("Finishing ASG action")
+        message = json.loads(record['Sns']['Message'])
+        if LIFECYCLE_KEY in message and ASG_KEY in message :
+            response = autoscaling.complete_lifecycle_action (
+                LifecycleHookName     = message['LifecycleHookName'],
+                AutoScalingGroupName  = message['AutoScalingGroupName'],
+                InstanceId            = message['EC2InstanceId'],
+                LifecycleActionToken  = message['LifecycleActionToken'],
+                LifecycleActionResult = 'CONTINUE'
+            )
+            logger.info("ASG action complete: %s", response)
+        else :
+            logger.error("No valid JSON message")
 
 # if invoked manually, assume someone pipes in a event json
 if __name__ == "__main__":
