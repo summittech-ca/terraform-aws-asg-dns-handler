@@ -50,7 +50,7 @@ data "archive_file" "autoscale" {
 data "archive_file" "multihost" {
   type        = "zip"
   source_file = format("%s/lambda/multihost/autoscale.py", path.module)
-  output_path = format("%s/lambda/dist/autoscale.zip", path.module)
+  output_path = format("%s/lambda/dist/multihost.zip", path.module)
 }
 
 resource "aws_iam_role_policy" "autoscale_handling" {
