@@ -11,18 +11,19 @@ autoscaling = boto3.client('autoscaling')
 ec2 = boto3.client('ec2')
 route53 = boto3.client('route53')
 
-HOSTNAME_TAG_NAME = "asg:hostname_pattern"
+HOSTNAME_TAG_NAME_PUBLIC = os.environ['hostname_tag_name_public']
+HOSTNAME_TAG_NAME_PRIVATE = os.environ['hostname_tag_name_private']
 
 LIFECYCLE_KEY = "LifecycleHookName"
 ASG_KEY = "AutoScalingGroupName"
 
 # Fetches IP of an instance via EC2 API
-def fetch_ip_from_ec2(instance_id):
+def fetch_ip_from_ec2(instance_id, fetch_public_ip):
     logger.info("Fetching IP for instance-id: %s", instance_id)
     ip_address = None
     ec2_response = ec2.describe_instances(InstanceIds=[instance_id])['Reservations'][0]['Instances'][0]
     if ec2_response['State']['Name'] == 'running':
-      if 'use_public_ip' in os.environ and os.environ['use_public_ip'] == "true":
+      if fetch_public_ip:
         try:
           ip_address = ec2_response['PublicIpAddress']
           logger.info("Found public IP for instance-id %s: %s", instance_id, ip_address)
@@ -54,13 +55,16 @@ def fetch_ip_from_route53(hostname, zone_id):
 
 # Fetches relevant tags from ASG
 # Returns tuple of hostname_pattern, zone_id
-def fetch_tag_metadata(asg_name):
-    logger.info("Fetching tags for ASG: %s", asg_name)
+def fetch_tag_metadata(asg_name, TAG_NAME):
+    logger.info("Fetching tags for ASG: %s, TAG_NAME: %s", asg_name, TAG_NAME)
+
+    if (TAG_NAME == ""):
+      return ""
 
     tag_value = autoscaling.describe_tags(
         Filters=[
             {'Name': 'auto-scaling-group','Values': [asg_name]},
-            {'Name': 'key','Values': [HOSTNAME_TAG_NAME]}
+            {'Name': 'key','Values': [TAG_NAME]}
         ],
         MaxRecords=1
     )['Tags'][0]['Value']
@@ -114,7 +118,7 @@ def update_record(zone_id, ips, hostname):
         }
     )
 
-def process_asg(auto_scaling_group_name, hostname, ignore_instance):
+def process_asg(auto_scaling_group_name, hostname, ignore_instance, fetch_public_ip):
   # Iterate through the instance group: Put IP addresses into a list and update the instance names to match the group.
   # ignore_instance should only be provided if we are terminating an instance.
   ips = []
@@ -125,7 +129,7 @@ def process_asg(auto_scaling_group_name, hostname, ignore_instance):
     logger.info("Ignoring instance-id %s while Processing ASG %s", ignore_instance, auto_scaling_group_name)
   for instance in autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=[auto_scaling_group_name])['AutoScalingGroups'][0]['Instances']:
     if ignore_instance != instance['InstanceId']:
-      ipAddr = fetch_ip_from_ec2(instance['InstanceId'])
+      ipAddr = fetch_ip_from_ec2(instance['InstanceId'], fetch_public_ip)
       if ipAddr is not None:
         ips.append({'Value': ipAddr})
         update_name_tag(instance['InstanceId'], hostname)
@@ -151,11 +155,16 @@ def process_message(message):
       ignore_instance = instance_id
       logger.info("The following instance-id should be ignored %s", instance_id)
 
-    hostname_pattern, zone_id = fetch_tag_metadata(asg_name)
-    hostname = build_hostname(hostname_pattern, "")
-
-    ip_addrs = process_asg(asg_name, hostname, ignore_instance)
-    update_record(zone_id, ip_addrs, hostname)
+    if (HOSTNAME_TAG_NAME_PUBLIC != ""):
+      hostname_pattern, zone_id = fetch_tag_metadata(asg_name, HOSTNAME_TAG_NAME_PUBLIC)
+      hostname = build_hostname(hostname_pattern, "")
+      ip_addrs = process_asg(asg_name, hostname, ignore_instance, True)
+      update_record(zone_id, ip_addrs, hostname)
+    if (HOSTNAME_TAG_NAME_PRIVATE != ""):
+      hostname_pattern, zone_id = fetch_tag_metadata(asg_name, HOSTNAME_TAG_NAME_PRIVATE)
+      hostname = build_hostname(hostname_pattern, "")
+      ip_addrs = process_asg(asg_name, hostname, ignore_instance, False)
+      update_record(zone_id, ip_addrs, hostname)
 
 # Picks out the message from a SNS message and deserializes it
 def process_record(record):
