@@ -110,7 +110,7 @@ def update_record(zone_id, ips, hostname):
                     'ResourceRecordSet': {
                         'Name': hostname,
                         'Type': 'A',
-                        'TTL': 300,
+                        'TTL': 15,
                         'ResourceRecords': ips
                     }
                 }
