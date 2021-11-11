@@ -53,17 +53,18 @@ resource "aws_autoscaling_group" "test" {
   launch_configuration      = aws_launch_configuration.test.name
   termination_policies      = ["OldestInstance"]
 
-  tag {
-    key                 = "Name"
-    value               = "asg-handler"
-    propagate_at_launch = true
-  }
-
-  tag {
-    key                 = "asg:hostname_pattern"
-    value               = "asg-test-#instanceid.asg-handler-vpc.testing@${aws_route53_zone.test.id}"
-    propagate_at_launch = true
-  }
+  tags = [
+    {
+      key                 = "Name"
+      value               = "asg-handler"
+      propagate_at_launch = true
+    },
+    {
+      key                 = "asg:hostname_pattern"
+      value               = "asg-test-#instanceid.asg-handler-vpc.testing@${aws_route53_zone.test.id}"
+      propagate_at_launch = true
+    }
+  ]
 }
 
 resource "aws_security_group" "test" {
