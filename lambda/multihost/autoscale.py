@@ -132,7 +132,7 @@ def process_asg(auto_scaling_group_name, hostname, ignore_instance, fetch_public
       ipAddr = fetch_ip_from_ec2(instance['InstanceId'], fetch_public_ip)
       if ipAddr is not None:
         ips.append({'Value': ipAddr})
-        update_name_tag(instance['InstanceId'], hostname)
+        # update_name_tag(instance['InstanceId'], hostname) # This is stupid logic we don't want
   return ips
 
 
