@@ -3,14 +3,14 @@ locals {
 }
 
 resource "aws_sns_topic" "autoscale_handling" {
-  name = format("%s-%s", var.vpc_name, var.autoscale_handler_unique_identifier)
+  name = format("%s", var.autoscale_handler_unique_identifier)
 }
 
 resource "aws_lambda_function" "autoscale_handling" {
   depends_on = [aws_sns_topic.autoscale_handling]
 
   filename         = local.lambda_pkg.output_path
-  function_name    = format("%s-%s", var.vpc_name, var.autoscale_handler_unique_identifier)
+  function_name    = format("%s", var.autoscale_handler_unique_identifier)
   role             = aws_iam_role.autoscale_handling.arn
   handler          = "autoscale.lambda_handler"
   runtime          = "python3.8"
@@ -57,19 +57,19 @@ data "archive_file" "multihost" {
 }
 
 resource "aws_iam_role_policy" "autoscale_handling" {
-  name = format("%s-%s", var.vpc_name, var.autoscale_handler_unique_identifier)
+  name = format("%s", var.autoscale_handler_unique_identifier)
   role = aws_iam_role.autoscale_handling.name
 
   policy = data.aws_iam_policy_document.autoscale_handling_document.json
 }
 
 resource "aws_iam_role" "autoscale_handling" {
-  name               = format("%s-%s", var.vpc_name, var.autoscale_handler_unique_identifier)
+  name               = format("%s", var.autoscale_handler_unique_identifier)
   assume_role_policy = data.aws_iam_policy_document.assume_lambda_role_policy_document.json
 }
 
 resource "aws_iam_role" "lifecycle" {
-  name               = format("%s-%s-lifecycle", var.vpc_name, var.autoscale_handler_unique_identifier)
+  name               = format("%s-lifecycle", var.autoscale_handler_unique_identifier)
   assume_role_policy = data.aws_iam_policy_document.lifecycle_role.json
 }
 
@@ -96,7 +96,7 @@ data "aws_iam_policy_document" "lifecycle_role" {
 }
 
 resource "aws_iam_role_policy" "lifecycle_policy" {
-  name   = format("%s-%s-lifecycle", var.vpc_name, var.autoscale_handler_unique_identifier)
+  name   = format("%s-lifecycle", var.autoscale_handler_unique_identifier)
   role   = aws_iam_role.lifecycle.id
   policy = data.aws_iam_policy_document.lifecycle_policy.json
 }
@@ -144,3 +144,21 @@ data "aws_iam_policy_document" "autoscale_handling_document" {
   }
 }
 
+resource "aws_iam_role_policy" "update_dns_policy" {
+  role = aws_iam_role.autoscale_handling.name
+
+	# Terraform's "jsonencode" function converts a
+	# Terraform expression result to valid JSON syntax.
+	policy = jsonencode({
+		Version = "2012-10-17"
+		Statement = [
+			{
+				Action = [
+					"route53:*",
+				]
+				Effect   = "Allow"
+				Resource = "${var.autoscale_route53zone_arn}"
+			},
+		]
+	})
+}
