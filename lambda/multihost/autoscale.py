@@ -3,6 +3,7 @@ import logging
 import boto3
 import sys
 import os
+import socket
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -28,7 +29,13 @@ def fetch_ip_from_ec2(instance_id, fetch_public_ip):
           ip_address = ec2_response['PublicIpAddress']
           logger.info("Found public IP for instance-id %s: %s", instance_id, ip_address)
         except:
-          logger.info("No public IP for instance-id %s: %s", instance_id, ip_address)
+          try:
+            logger.info("Fetching public IP from PublicDnsName %s: %s", instance_id, ec2_response['PublicDnsName'])
+            addressInfo = socket.getaddrinfo(ec2_response['PublicDnsName'], 80, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+            ip_address = addressInfo[0][4][0]
+            logger.info("Found public IP for instance-id %s: %s", instance_id, ip_address)
+          except:
+            logger.info("No public IP for instance-id %s: %s", instance_id, ip_address)
       else:
         try:
           ip_address = ec2_response['PrivateIpAddress']
