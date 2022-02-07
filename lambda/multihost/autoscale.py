@@ -57,9 +57,21 @@ def fetch_rrs_from_route53(hostname, zone_id):
           StartRecordType='A',
           MaxItems='250'
       )
-      rrs = result['ResourceRecordSets'][0]
-      logger.info("Found RRs for hostname %s: %s", hostname, rrs)
-      return rrs
+      # This API is braindead, and gladly returns you records that have NOTHING to do
+      # with what you requested.
+      # [INFO] 2022-02-07T19:38:01.939Z 66d49cc3-2990-4277-98ae-2816c80ea411 Found RRs
+      #       for hostname pub.ca-central-1a.priv.odience.org:
+      #       {'Name': 'rep.ca-central-1a.priv.odience.org.',
+      #       'Type': 'A', 'TTL': 15, 'ResourceRecords': [{'Value': '10.10.64.24'}]}
+
+      # Because this API call is clinically retarded, we need to filter on our own
+      if result['Name'] == hostname:
+        rrs = result['ResourceRecordSets'][0]
+        logger.info("Found RRs for hostname %s: %s", hostname, rrs)
+        return rrs
+      else:
+        logger.warn("Discarding nonsensical junk response due to hostname mismatch %s: %s", hostname, result)
+        return []
     except IndexError:
       logger.warn("IndexError on result %s", result)
       return False

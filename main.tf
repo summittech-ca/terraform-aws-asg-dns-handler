@@ -6,6 +6,13 @@ resource "aws_sns_topic" "autoscale_handling" {
   name = format("%s", var.autoscale_handler_unique_identifier)
 }
 
+# This is to optionally manage the CloudWatch Log Group for the Lambda Function.
+# If skipping this resource configuration, also add "logs:CreateLogGroup" to the IAM policy below.
+resource "aws_cloudwatch_log_group" "example" {
+  name              = format("/aws/lambda/%s", var.autoscale_handler_unique_identifier)
+  retention_in_days = 14
+}
+
 resource "aws_lambda_function" "autoscale_handling" {
   depends_on = [aws_sns_topic.autoscale_handling]
 
@@ -106,7 +113,7 @@ data "aws_iam_policy_document" "lifecycle_policy" {
 data "aws_iam_policy_document" "autoscale_handling_document" {
   statement {
     actions = [
-      "logs:CreateLogGroup",
+      # "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents"
     ]
