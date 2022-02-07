@@ -1,5 +1,5 @@
 locals {
-  lambda_pkg = var.multi_host ? data.archive_file.multihost : data.archive_file.autoscale
+  lambda_pkg = data.archive_file.multihost
 }
 
 resource "aws_sns_topic" "autoscale_handling" {
@@ -42,12 +42,6 @@ resource "aws_sns_topic_subscription" "autoscale_handling" {
   topic_arn = aws_sns_topic.autoscale_handling.arn
   protocol  = "lambda"
   endpoint  = aws_lambda_function.autoscale_handling.arn
-}
-
-data "archive_file" "autoscale" {
-  type        = "zip"
-  source_file = format("%s/lambda/autoscale/autoscale.py", path.module)
-  output_path = format("%s/lambda/dist/autoscale.zip", path.module)
 }
 
 data "archive_file" "multihost" {
