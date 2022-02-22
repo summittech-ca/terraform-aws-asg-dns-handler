@@ -65,7 +65,7 @@ def fetch_rrs_from_route53(hostname, zone_id):
       #       'Type': 'A', 'TTL': 15, 'ResourceRecords': [{'Value': '10.10.64.24'}]}
 
       # Because this API call is clinically retarded, we need to filter on our own
-      if result['Name'] == hostname:
+      if ('Name' in result) and (result['Name'] == hostname):
         rrs = result['ResourceRecordSets'][0]
         logger.info("Found RRs for hostname %s: %s", hostname, rrs)
         return rrs
