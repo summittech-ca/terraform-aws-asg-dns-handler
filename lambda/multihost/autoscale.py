@@ -121,7 +121,7 @@ def update_record(zone_id, ips, hostname):
     if len(ips) == 0:
       logger.info("No ips found, deleting DNS record")
       rrs = fetch_rrs_from_route53(hostname, zone_id)
-      if rrs == False:
+      if (rrs == False) or (rrs == []):
         logger.info("Record for %s in %s does not exist, and no IPs found (noop)", hostname, zone_id)
       else:
         logger.info("Deleting record for %s -> %s in %s", hostname, rrs, zone_id)
